@@ -81,11 +81,12 @@ class Slurm:
         if not isinstance(jobids, list):
             jobids = [jobids]  
         job = 'scancel ' + ' '.join([str(i) for i in jobids])
-        return job
-        return subprocess.check_output(job,
-                                       stderr=subprocess.STDOUT,
-                                       shell=True,
-                                       encoding = 'utf-8')
+        subprocess.check_output(job,
+                                stderr=subprocess.STDOUT,
+                                shell=True,
+                                encoding = 'utf-8')
+        print('Done!')
+        return None
     
     def cancel_all(self):
         '''
@@ -102,7 +103,7 @@ class Slurm:
         Cancels all the jobs whose jobname == name
         Ex: Slurm.cancel('mysimulations')
         '''
-        return self.cancel(self.jobids()[name])
+        return self.cancel(self.jobids_by_name()[name])
     
     def cancel_by_time(self, mins, above = True):
         '''
@@ -110,12 +111,12 @@ class Slurm:
         Ex1: Slurm.cancel_by_time(15) <- Jobs whose runtime is greater then 15 mins
         Ex2: Slurm.cancel_by_time(16, False) <- Jobs whose runtime is less then 16 mins
         '''
-        return self.cancel(self.jobids_by_time(self, mins, above))
-        
+        return self.cancel(self.jobids_by_time(mins, above))   
+    
     def batch(self, *args, sbat_file = 'default'):      
         '''
-        Send job to the HPC. 
-        Ex: Slurm.batch('#job-name="mysimulation"', '#mem-per-cpu=1000', 'module load anaconda', 'python my.py 108')
+        Write the ettings and add the modules fo sending a job to the HPC. 
+        Ex: Slurm.batch('#job-name="mysimulation"', '#mem-per-cpu=1000', 'module load anaconda', 'source activate myenv')
         Parameters
         ----------
         sbat_file : str, optional
@@ -128,9 +129,13 @@ class Slurm:
                 '#<slurmvar>=<itsvalue>'
                 Ex: '#job-name="mysimulation"'
                     '#dependency=afterok:4815162342'
-            (2) : You can simply add your other commands:
+            (2) : You can simply add your other commands, such as loading modules:
                 Ex: 'module load anaconda'
-                    'python my.py 2 3 10'
+                    'source activate myenv'
+                    
+        Returns
+        -------
+        Function to run a batch job
         '''
         account = self.account        
         path = self.path
@@ -144,9 +149,8 @@ class Slurm:
                   'time=0-2:0:00',
                   'mem-per-cpu=1000',
                   'cpus-per-task=1',
-                  'account="'+account,
+                  'account="'+account+'"',
                   'job-name="myjob"',
-                  'account="stats_dept1"',
                   'ntasks=1']
                 
         L = ['#!/bin/bash',
@@ -169,18 +173,28 @@ class Slurm:
             L.append('#SBATCH --'+setting+'='+Settings[setting])
         L = L + JandC
         
-        file1 = open(sbat_file, 'w')
-        file1.writelines(L)
-        file1.close()
+        class Job:
+            def __init__(self):
+                self.lines = L
+                self.sbat_file = sbat_file
+            def run(self, job):
+                L = self.lines.copy()
+                sbat_file = self.sbat_file
+                L.append(job)
+                
+                with open(sbat_file, 'w') as filehandle:
+                    filehandle.writelines("%s\n" %line for line in L)
+
+                jobname = subprocess.check_output('sbatch ' + sbat_file,
+                                                  stderr=subprocess.STDOUT,
+                                                  shell=True,
+                                                  encoding = 'utf-8')
         
-        jobname = subprocess.check_output('sbatch ' + sbat_file,
-                                          stderr=subprocess.STDOUT,
-                                          shell=True,
-                                          encoding = 'utf-8')
+                return int(re.findall('\d+', jobname)[0])
         
-        return int(re.findall('\d+', jobname)[0])
-    
-    def my_job_stats(self, jobid):
+        return Job()
+
+    def my_job_stats(self, jobid, raw = False):
         '''
         Returns the job statistics as a dictionary
         '''
@@ -188,7 +202,10 @@ class Slurm:
                               stderr=subprocess.STDOUT,
                               shell=True,
                               encoding = 'utf-8')
-
+    
+        if raw:
+            return print(mjs)
+        
         mjs = mjs.split('\n')
         ret = {}
         for s in mjs:
