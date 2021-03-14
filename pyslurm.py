@@ -17,15 +17,20 @@ class Slurm:
             self.path = path
         self.account = account
         
-    def queue(self):
+    def queue(self, name = None):
         '''
-        Returns your job queue as a pandas dataframe
+        Returns your job queue as a pandas dataframe, if <name> is given that it will only returns
+        the jobs with the tame <name>
         '''
         user = self.user
-        return pd.read_csv(StringIO(subprocess.check_output('squeue -u '+ user,
-                                                            stderr=subprocess.STDOUT,
-                                                            shell=True,
-                                                            encoding = 'utf-8')), sep = '\s+')
+        df = pd.read_csv(StringIO(subprocess.check_output('squeue -u '+ user,
+                                                          stderr=subprocess.STDOUT,
+                                                          shell=True,
+                                                          encoding = 'utf-8')), sep = '\s+')
+        if name is not None:
+            df = df[df['NAME'] == name]
+        
+        return df
     
     def jobids(self):
         '''
