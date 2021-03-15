@@ -17,7 +17,7 @@ class Slurm:
             self.path = path
         self.account = account
         
-    def queue(self, name = None):
+    def queue(self, by_name = None, by_time = None):
         '''
         Returns your job queue as a pandas dataframe, if <name> is given that it will only returns
         the jobs with the tame <name>
@@ -27,65 +27,54 @@ class Slurm:
                                                           stderr=subprocess.STDOUT,
                                                           shell=True,
                                                           encoding = 'utf-8')), sep = '\s+')
-        if name is not None:
-            df = df[df['NAME'] == name]
-        
+
+
+
+        if by_name is not None:
+            df = df[df['NAME'] == by_name]
+
+        if by_time is not None:
+
+            def calc_min(x):
+                smh = [1/60, 1, 60]
+                x = x.split(":")
+                x.reverse()
+                t = 0
+                for i in range(len(x)):
+                    t += smh[i]*int(x[i])
+                return t
+
+            t = df['TIME']
+            t = [calc_min(x) for x in t] # calc the time in mins        
+
+            symbol, ltime = by_time[:1], int(by_time[1:])
+
+            if symbol == '>':
+                df = df[[x>ltime for x in t]]
+            elif symbol == '<':
+                df = df[[x<ltime for x in t]]
+
         return df
     
-    def jobids(self):
+    def jobids(self, by_name = None, by_time = None):
         '''
         Returns list of jobids
+        by_name = <name of your batch job>
+        by_time = If you want to cancel jobs that runs more, less than x mins, then by_time='>x', by_time='<x'. 
+        Ex: Slurm.jobids(by_name = 'mysims'), Slurm.jobids(by_name = 'mysims', by_time = '>10'), Slurm.jobids()
         '''
-        queue = self.queue()
-        return queue['JOBID'].to_list()
-    
-    def jobids_by_name(self):
-        '''
-        Returns a dictionary of jobids by job names: Dictionary[jobname] = [list of jobids]
-        '''
-        queue = self.queue()
-        names = queue['NAME'].unique()
-        jobs = {}
-        for name in names:
-            jobs[name] = queue[queue['NAME'] == name]['JOBID'].to_list()
-        return jobs
+        queue = self.queue(by_name = by_name, by_time = by_time)
+        jids = queue['JOBID'].to_list()
+        return jids
         
-    def jobids_by_time(self, mins, above = True):
-        '''
-        Returns a list of jobids if its runtime greater then mins (reverse if above = False). 
-        Ex1: Slurm.jobids_by_time(15) <- Jobs whose runtime is greater then 15 mins
-        Ex2: Slurm.jobids_by_time(16, False) <- Jobs whose runtime is less then 16 mins
-        '''
-        queue = self.queue() 
-        jobs = queue['JOBID'].to_list()          
-        
-        def calc_min(x):
-            smh = [1/60, 1, 60]
-            x = x.split(":")
-            x.reverse()
-            t = 0
-            for i in range(len(x)):
-                t += smh[i]*int(x[i])
-            return t
-        
-        t = queue['TIME']
-        t = [calc_min(x) for x in t]
-        
-        if above:
-            tjobs = [jobs[i] for i in range(len(jobs)) if t[i] >= mins]
-        else:
-            tjobs = [jobs[i] for i in range(len(jobs)) if t[i] <= mins]
-        
-        return tjobs    
-    
-    def cancel(self, jobids):
+    def cancel(self, jids):
         '''
         Cancels jobs by jobids
         Ex: Slurm.cancel([4815, 4816, 2342])
         '''
-        if not isinstance(jobids, list):
-            jobids = [jobids]  
-        job = 'scancel ' + ' '.join([str(i) for i in jobids])
+        if not isinstance(jids, list):
+            jids = [jids]  
+        job = 'scancel ' + ' '.join([str(i) for i in jids])
         subprocess.check_output(job,
                                 stderr=subprocess.STDOUT,
                                 shell=True,
@@ -93,30 +82,19 @@ class Slurm:
         print('Done!')
         return None
     
-    def cancel_all(self):
+    def cancel_by(self, by_name = None, by_time = None):
         '''
-        Cancels all of your jobs in the queue
+        see Slurm.jobids, if you call it empty: Slurm.cancel_by(), it will cancel all of your jobs
         '''
-        i = input('You will cancel all of your jobs, continue?')
-        if i in ['y', 'Y']:
-            return self.cancel(self.jobids())
-        else:
-            return None
-    
-    def cancel_by_name(self, name):
-        '''
-        Cancels all the jobs whose jobname == name
-        Ex: Slurm.cancel('mysimulations')
-        '''
-        return self.cancel(self.jobids_by_name()[name])
-    
-    def cancel_by_time(self, mins, above = True):
-        '''
-        Cancels the jobs which their runtime are greater then mins (reverse if above = False). 
-        Ex1: Slurm.cancel_by_time(15) <- Jobs whose runtime is greater then 15 mins
-        Ex2: Slurm.cancel_by_time(16, False) <- Jobs whose runtime is less then 16 mins
-        '''
-        return self.cancel(self.jobids_by_time(mins, above))   
+        jids = self.jobids(by_name = by_name, by_time = by_time)
+        
+        if (by_name is None) & (by_time is None):
+            i = input('You will cancel all of your jobs, continue?(y)')
+            if i not in ['y', 'Y']:
+                print('Nothing happened')
+                return None
+                
+        self.cancel(jids)
     
     def batch(self, *args, sbat_file = 'default'):      
         '''
@@ -170,7 +148,10 @@ class Slurm:
         for arg in args:
             if arg[0] == '#':
                 k, v = arg[1:].split('=')
-                Settings[k] = v # Override the default settings or add new ones
+                if v == 'None':
+                    del Settings[k] # if it is set to None, remove it
+                else:
+                    Settings[k] = v # Override the default settings or add new ones
             else:
                 JandC.append(arg)
 
@@ -199,11 +180,11 @@ class Slurm:
         
         return Job()
 
-    def my_job_stats(self, jobid, raw = False):
+    def my_job_stats(self, jid, raw = False):
         '''
         Returns the job statistics as a dictionary
         '''
-        mjs = subprocess.check_output('my_job_statistics ' + str(jobid),
+        mjs = subprocess.check_output('my_job_statistics ' + str(jid),
                               stderr=subprocess.STDOUT,
                               shell=True,
                               encoding = 'utf-8')
@@ -221,21 +202,21 @@ class Slurm:
                 
         return ret
     
-    def read_out(self, jobid = None, logpath = 'default'):    
+    def read_out(self, jid = None, logpath = 'default'):    
         '''
-        Read a job output. If jobid is given, then it will look at the default location.
+        Read a job output. If jid is given, then it will look at the default location.
         Otherwise user must specify the logpath.
         '''
         
-        if jobid is not None:
+        if jid is not None:
             if logpath == 'default':
-                name = self.my_job_stats(jobid)['Job name']
-                logpath = os.path.join(self.path, name+'-'+str(jobid)+'.log')
+                name = self.my_job_stats(jid)['Job name']
+                logpath = os.path.join(self.path, name+'-'+str(jid)+'.log')
         
         f = open(logpath, "r")
         print(f.read())
     
-    def monthly_usage(self, account='default', raw = False):
+    def monthly_usage(self, account='default', raw = False, quota = None):
         '''
         Monthly usage stats for the user. If raw is true then it will return the os output
         '''
@@ -264,5 +245,15 @@ class Slurm:
                     myusage = int(re.findall('\d{2,}', i)[0]) 
 
             print(my_out)
-            print('\nTotal usage is', total, 'your usage is', myusage, 'this is', str(round(100*myusage/total, 2))+'%','of the total')   
+            
+            ret = 'Total usage is', str(total), 'your usage is', str(myusage), 'this is', str(round(100*myusage/total, 2))+'%','of the total.'
+            ret = ' '.join(ret)
+            if quota is not None:
+                ret2 = ' You are using', str(round(100*myusage/quota, 2))+'%', 'of your quota.'
+                ret2 = ' '.join(ret2)
+                ret = ret+ret2
+
+            print(ret)
+               
+            return None
     
