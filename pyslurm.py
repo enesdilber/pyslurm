@@ -166,7 +166,11 @@ class Slurm:
             def run(self, job):
                 L = self.lines.copy()
                 sbat_file = self.sbat_file
-                L.append(job)
+                
+                if isinstance(job, str):
+                    job = [job]
+                
+                L = L + job
                 
                 with open(sbat_file, 'w') as filehandle:
                     filehandle.writelines("%s\n" %line for line in L)
@@ -214,7 +218,7 @@ class Slurm:
                 logpath = os.path.join(self.path, name+'-'+str(jid)+'.log')
         
         f = open(logpath, "r")
-        print(f.read())
+        return f.read()
     
     def monthly_usage(self, account='default', raw = False, quota = None):
         '''
@@ -257,3 +261,25 @@ class Slurm:
                
             return None
     
+    def multiple_stats(self, jids):
+
+        mult = [3600, 60, 1]
+
+        rams = []
+        runtimes = []
+        comps = []
+        
+        if not isinstance(jids, list):
+            jids = [jids]
+        
+        for jid in jids:
+            stat = self.my_job_stats(jid)
+            rt = stat['Job running time']
+            mb = stat['Memory Utilized']
+            comp = stat['State'] == 'COMPLETED'
+
+            rams.append(float(re.search('\d+\.\d+', mb).group()))
+            runtimes.append(sum([m*float(i) for m, i in zip(mult, rt.split(':'))]))
+            comps.append(comp)
+            
+        return {'jobid': jids, 'ramMB':ram, 'timeSEC': runtimes, 'isCompleted': comps}
