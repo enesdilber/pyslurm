@@ -128,7 +128,8 @@ class Slurm:
         
         logpath = os.path.join(path, '%x-%j.log')
             
-        defaults=['output='+logpath,
+        defaults=['partition=standard',
+                  'output='+logpath,
                   'time=0-2:0:00',
                   'mem-per-cpu=1000',
                   'cpus-per-task=1',
@@ -136,8 +137,7 @@ class Slurm:
                   'job-name="myjob"',
                   'ntasks=1']
                 
-        L = ['#!/bin/bash',
-             '#SBATCH -p standard']
+        L = ['#!/bin/bash']
         
         Settings = {} # The default sbatch settings
         for opt in defaults:
