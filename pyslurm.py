@@ -206,7 +206,7 @@ class Slurm:
                 
         return ret
     
-    def read_out(self, jid = None, logpath = 'default'):    
+    def read_out(self, jid = None, logpath = 'default', after = False):    
         '''
         Read a job output. If jid is given, then it will look at the default location.
         Otherwise user must specify the logpath.
@@ -218,7 +218,12 @@ class Slurm:
                 logpath = os.path.join(self.path, name+'-'+str(jid)+'.log')
         
         f = open(logpath, "r")
-        return f.read()
+        x = f.read()
+        
+        if after:
+            x = x.split(after)
+            x = ''.join(x[1:])
+        return x
     
     def monthly_usage(self, account='default', raw = False, quota = None):
         '''
@@ -282,4 +287,4 @@ class Slurm:
             runtimes.append(sum([m*float(i) for m, i in zip(mult, rt.split(':'))]))
             comps.append(comp)
             
-        return {'jobid': jids, 'ramMB':ram, 'timeSEC': runtimes, 'isCompleted': comps}
+        return {'jobid': jids, 'ramMB':rams, 'timeSEC': runtimes, 'isCompleted': comps}
